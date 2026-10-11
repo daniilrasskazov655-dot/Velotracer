@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#14161c">
+<title>🛣️ Качество дорог</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  #map { position: absolute; inset: 0; z-index: 1; background: #e8ece6; }
+  .top-bar { position: absolute; top: calc(10px + env(safe-area-inset-top)); left: 10px; right: 10px; z-index: 1000; display: flex; gap: 8px; align-items: center; pointer-events: none; }
+  .top-bar > * { pointer-events: auto; }
+  .status { flex: 1; padding: 8px 14px; border-radius: 12px; background: rgba(20,22,28,.9); backdrop-filter: blur(10px); color: #fff; font-size: 12px; display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .status span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; flex-shrink: 0; }
+  .dot.ok { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+  .dot.err { background: #ef4444; }
+  .dot.load { background: #3b82f6; animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  .float-btn { background: rgba(20,22,28,.9); backdrop-filter: blur(10px); color: #fff; border: none; border-radius: 12px; padding: 11px 14px; font-size: 18px; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,.25); transition: transform .1s; }
+  .float-btn:active { transform: scale(.94); }
+  .float-btn.active { background: #22c55e; }
+
+  .side-btns { position: absolute; right: 10px; z-index: 1000; display: flex; flex-direction: column; gap: 8px; }
+  #sideTop { top: 60px; }
+  #sideBottom { bottom: 160px; }
+
+  .legend { position: absolute; left: 10px; bottom: calc(130px + env(safe-area-inset-bottom)); z-index: 1000; background: rgba(20,22,28,.92); backdrop-filter: blur(10px); color: #fff; border-radius: 14px; padding: 10px 12px; font-size: 11px; line-height: 1.6; max-width: 190px; }
+  .legend .row { display: flex; align-items: center; gap: 7px; }
+  .legend .swatch { width: 14px; height: 4px; border-radius: 2px; flex-shrink: 0; }
+  .legend h4 { font-size: 11px; text-transform: uppercase; opacity: .6; margin-bottom: 5px; letter-spacing: .5px; }
+  .legend .toggle { position: absolute; top: 8px; right: 10px; cursor: pointer; opacity: .6; font-size: 13px; }
+
+  .panel { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1000; background: rgba(20, 22, 28, 0.94); backdrop-filter: blur(12px); color: #fff; border-radius: 22px 22px 0 0; padding: 14px 18px calc(14px + env(safe-area-inset-bottom)); box-shadow: 0 -8px 30px rgba(0,0,0,.35); }
+  .row { display: flex; gap: 10px; }
+  .btn { flex: 1; border: none; border-radius: 15px; padding: 14px; font-size: 15px; font-weight: 700; letter-spacing: .3px; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: transform .1s; }
+  .btn:active { transform: scale(.97); }
+  .btn.green { background: linear-gradient(135deg, #22c55e, #16a34a); }
+  .btn.blue { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+  .btn.gray { background: rgba(255,255,255,.1); }
+  .btn.red { background: linear-gradient(135deg, #ef4444, #dc2626); }
+  .btn:disabled { opacity: .5; }
+
+  .toast { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 4000; padding: 14px 22px; border-radius: 14px; background: rgba(20,22,28,.95); color: #fff; font-size: 14px; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,.5); max-width: 80vw; opacity: 0; pointer-events: none; transition: opacity .25s; white-space: pre-line; }
+  .toast.show { opacity: 1; }
+
+  .modal { position: fixed; inset: 0; z-index: 3000; background: rgba(10,11,15,.7); backdrop-filter: blur(6px); display: none; }
+  .modal.show { display: block; }
+  .modal-inner { position: absolute; left: 0; right: 0; bottom: 0; top: 40px; background: #14161c; color: #fff; border-radius: 22px 22px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .modal-head h2 { font-size: 20px; }
+  .icon-btn { background: rgba(255,255,255,.08); border: none; color: #fff; border-radius: 10px; padding: 8px 12px; font-size: 14px; cursor: pointer; }
+  .report-list { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .report { background: rgba(255,255,255,.04); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 12px; cursor: pointer; }
+  .report .q { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+  .report .info { flex: 1; min-width: 0; }
+  .report .date { font-size: 12px; opacity: .6; }
+  .report .name { font-size: 15px; font-weight: 600; margin: 2px 0; }
+  .report .note { font-size: 12px; opacity: .65; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .report .del { background: transparent; border: none; color: #ef4444; font-size: 18px; padding: 8px; cursor: pointer; }
+  .empty { text-align: center; opacity: .5; padding: 40px 20px; font-size: 14px; }
+
+  .pick-bar { position: absolute; left: 10px; right: 10px; bottom: calc(130px + env(safe-area-inset-bottom)); z-index: 1500; background: rgba(20,22,28,.95); backdrop-filter: blur(12px); color: #fff; border-radius: 16px; padding: 12px; display: none; }
+  .pick-bar.show { display: block; }
+  .pick-bar h4 { font-size: 13px; text-align: center; margin-bottom: 10px; opacity: .8; }
+  .pick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .pick-item { border: none; border-radius: 12px; padding: 12px 6px; color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .pick-item .em { font-size: 22px; }
+  .pick-item.g { background: #16a34a; }
+  .pick-item.y { background: #ca8a04; }
+  .pick-item.o { background: #ea580c; }
+  .pick-item.r { background: #dc2626; }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="top-bar">
+  <div class="status"><span class="dot" id="dot"></span><span id="statusTxt">Готов. Нажми «Показать»</span></div>
+</div>
+
+<div class="side-btns" id="sideTop">
+  <button class="float-btn" id="locBtn" title="Мой GPS">🎯</button>
+</div>
+
+<div class="side-btns" id="sideBottom">
+  <button class="float-btn" id="reportsBtn" title="Мои отметки">📋</button>
+  <button class="float-btn" id="pickBtn" title="Отметить качество">📍</button>
+</div>
+
+<div class="legend" id="legend">
+  <div class="toggle" id="legendToggle">▼</div>
+  <h4>Качество дорог</h4>
+  <div id="legendBody">
+    <div class="row"><span class="swatch" style="background:#22c55e"></span>Асфальт, бетон</div>
+    <div class="row"><span class="swatch" style="background:#eab308"></span>Плитка, укатанный</div>
+    <div class="row"><span class="swatch" style="background:#f97316"></span>Брусчатка, гравий</div>
+    <div class="row"><span class="swatch" style="background:#ef4444"></span>Грунт, песок, грязь</div>
+    <div class="row"><span class="swatch" style="background:#9ca3af"></span>Данных нет</div>
+  </div>
+</div>
+
+<div class="pick-bar" id="pickBar">
+  <h4>Оцени дорогу в этой точке</h4>
+  <div class="pick-grid">
+    <button class="pick-item g" data-q="green"><span class="em">✅</span>Отлично</button>
+    <button class="pick-item y" data-q="yellow"><span class="em">👍</span>Норм</button>
+    <button class="pick-item o" data-q="orange"><span class="em">⚠️</span>Плохо</button>
+    <button class="pick-item r" data-q="red"><span class="em">⛔</span>Нельзя</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="modal" id="reportsModal">
+  <div class="modal-inner">
+    <div class="modal-head">
+      <h2>📋 Мои отметки</h2>
+      <div class="actions" style="display:flex;gap:8px;">
+        <button class="icon-btn" id="clearAll">Очистить</button>
+        <button class="icon-btn" id="closeReports">✕</button>
+      </div>
+    </div>
+    <div class="report-list" id="reportList"></div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="row">
+    <button class="btn green" id="loadBtn">🛣️ Показать качество</button>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const TRANSPARENT = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+const map = L.map('map', { zoomControl: false }).setView([55.751244, 37.618423], 14);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap', errorTileUrl: TRANSPARENT, crossOrigin: true }).addTo(map);
+L.control.zoom({ position: 'topright' }).addTo(map);
+
+const COLORS = { green:'#22c55e', yellow:'#eab308', orange:'#f97316', red:'#ef4444', unknown:'#9ca3af' };
+const LABELS = { green:'Отлично', yellow:'Нормально', orange:'Плохо', red:'Не проехать', unknown:'Нет данных' };
+
+let qualityLayer = null;
+let userMarker = null;
+let followUser = false;
+let watchId = null;
+let pickMode = false;
+let pickMarkerPreview = null;
+let reportMarkers = [];
+
+const dot = document.getElementById('dot'), statusTxt = document.getElementById('statusTxt');
+const toastEl = document.getElementById('toast');
+
+function setStatus(s, t) { dot.className = 'dot ' + (s || ''); statusTxt.textContent = t; }
+let toastTimer;
+function toast(msg, ms) { ms = ms || 2400; toastEl.textContent = msg; toastEl.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms); }
+
+/* ============ Определение качества по тегам OSM ============ */
+function getQuality(tags) {
+  const s = (tags.surface || '').toLowerCase();
+  const sm = (tags.smoothness || '').toLowerCase();
+  const tt = (tags.tracktype || '').toLowerCase();
+
+  // smoothness — приоритет (это физическая ровность)
+  if (sm === 'excellent' || sm === 'good') return 'green';
+  if (sm === 'intermediate') return 'yellow';
+  if (sm === 'bad') return 'orange';
+  if (sm === 'very_bad' || sm === 'horrible' || sm === 'very_horrible' || sm === 'impassable') return 'red';
+
+  // surface
+  if (s === 'asphalt' || s === 'paved' || s === 'concrete' || s === 'concrete:plates' || s === 'chipseal') return 'green';
+  if (s === 'paving_stones' || s === 'sett' || s === 'compacted' || s === 'fine_gravel' || s === 'wood' || s === 'paving_stones:30') return 'yellow';
+  if (s === 'cobblestone' || s === 'unhewn_cobblestone' || s === 'gravel' || s === 'pebblestone' || s === 'metal' || s === 'bricks') return 'orange';
+  if (s === 'ground' || s === 'dirt' || s === 'earth' || s === 'mud' || s === 'grass' || s === 'sand' || s === 'soil' || s === 'grass_paver') return 'red';
+
+  // tracktype (для лесных дорог)
+  if (tt === 'grade1') return 'green';
+  if (tt === 'grade2') return 'yellow';
+  if (tt === 'grade3') return 'orange';
+  if (tt === 'grade4' || tt === 'grade5') return 'red';
+
+  return 'unknown';
+}
+
+/* ============ Загрузка данных из Overpass ============ */
+async function loadQuality() {
+  if (qualityLayer) { map.removeLayer(qualityLayer); qualityLayer = null; }
+
+  const b = map.getBounds();
+  const bbox = b.getSouth() + ',' + b.getWest() + ',' + b.getNorth() + ',' + b.getEast();
+
+  const query = '[out:json][timeout:30];(' +
+    'way["highway"]["surface"](' + bbox + ');' +
+    'way["highway"]["smoothness"](' + bbox + ');' +
+    'way["highway"="track"]["tracktype"](' + bbox + ');' +
+    ');out geom;';
+
+  setStatus('load', 'Загружаю данные…');
+  document.getElementById('loadBtn').disabled = true;
+
+  try {
+    const res = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      body: 'data=' + encodeURIComponent(query),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+
+    const group = { green: [], yellow: [], orange: [], red: [], unknown: [] };
+
+    data.elements.forEach(el => {
+      if (el.type !== 'way' || !el.geometry) return;
+      const q = getQuality(el.tags || {});
+      const latlngs = el.geometry.map(p => [p.lat, p.lon]);
+      group[q].push(latlngs);
+    });
+
+    qualityLayer = L.layerGroup();
+
+    // Рисуем слои снизу вверх: unknown, red, orange, yellow, green — чтобы важное было сверху
+    ['unknown', 'red', 'orange', 'yellow', 'green'].forEach(q => {
+      if (!group[q].length) return;
+      const lg = L.layerGroup(group[q].map(line =>
+        L.polyline(line, { color: COLORS[q], weight: q === 'green' ? 4 : 5, opacity: 0.85, lineCap: 'round' })
+      ));
+      qualityLayer.addLayer(lg);
+    });
+
+    qualityLayer.addTo(map);
+
+    const total = data.elements.length;
+    setStatus('ok', 'Найдено ' + total + ' участков');
+    toast('🛣️ Загружено ' + total + ' участков\n🟢 ' + group.green.length + '  🟡 ' + group.yellow.length + '  🟠 ' + group.orange.length + '  🔴 ' + group.red.length, 3000);
+  } catch (e) {
+    setStatus('err', 'Ошибка загрузки');
+    toast('⚠️ Не удалось загрузить данные.\nПроверь интернет и попробуй снова.', 3500);
+  }
+  document.getElementById('loadBtn').disabled = false;
+}
+
+document.getElementById('loadBtn').onclick = loadQuality;
+
+/* ============ Пользовательские отметки ============ */
+const STORAGE_KEY = 'road_reports_v1';
+function getReports() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch(e) { return []; } }
+function setReports(arr) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(arr)); } catch(e) {} }
+
+function makeReportMarker(r) {
+  const colors = { green:'#22c55e', yellow:'#eab308', orange:'#f97316', red:'#ef4444', unknown:'#9ca3af' };
+  const m = L.circleMarker([r.lat, r.lng], {
+    radius: 10, color: '#fff', weight: 3, fillColor: colors[r.q], fillOpacity: 1
+  }).addTo(map);
+  m.bindPopup('<b>Оценка: ' + LABELS[r.q] + '</b><br>' + new Date(r.date).toLocaleString('ru-RU') + (r.note ? '<br>' + r.note : ''));
+  return m;
+}
+function renderAllReports() {
+  reportMarkers.forEach(m => map.removeLayer(m));
+  reportMarkers = [];
+  getReports().forEach(r => reportMarkers.push(makeReportMarker(r)));
+}
+
+/* ============ Режим отметки ============ */
+const pickBar = document.getElementById('pickBar');
+document.getElementById('pickBtn').onclick = () => {
+  pickMode = !pickMode;
+  document.getElementById('pickBtn').classList.toggle('active', pickMode);
+  if (pickMode) {
+    setStatus('', '📍 Тапни по карте — куда добавить отметку');
+    toast('📍 Нажми на карту, где хочешь\nпоставить отметку качества');
+  } else {
+    pickBar.classList.remove('show');
+    if (pickMarkerPreview) { map.removeLayer(pickMarkerPreview); pickMarkerPreview = null; }
+    setStatus('ok', 'Готов');
+  }
+};
+
+let pickLatLng = null;
+map.on('click', (e) => {
+  if (!pickMode) return;
+  pickLatLng = e.latlng;
+  if (pickMarkerPreview) map.removeLayer(pickMarkerPreview);
+  pickMarkerPreview = L.circleMarker(e.latlng, {
+    radius: 12, color: '#3b82f6', weight: 3, dashArray: '5,5', fillOpacity: 0.2, fillColor: '#3b82f6'
+  }).addTo(map);
+  pickBar.classList.add('show');
+});
+
+document.querySelectorAll('.pick-item').forEach(btn => {
+  btn.onclick = () => {
+    if (!pickLatLng) return;
+    const q = btn.dataset.q;
+    const reports = getReports();
+    const r = { id: Date.now(), lat: pickLatLng.lat, lng: pickLatLng.lng, q: q, date: new Date().toISOString(), note: '' };
+    reports.unshift(r);
+    setReports(reports);
+    renderAllReports();
+    if (pickMarkerPreview) { map.removeLayer(pickMarkerPreview); pickMarkerPreview = null; }
+    pickBar.classList.remove('show');
+    pickMode = false;
+    document.getElementById('pickBtn').classList.remove('active');
+    toast('✅ Отметка добавлена: ' + LABELS[q]);
+    setStatus('ok', 'Готов');
+    pickLatLng = null;
+  };
+});
+
+/* ============ Список отметок ============ */
+const reportsModal = document.getElementById('reportsModal');
+document.getElementById('reportsBtn').onclick = () => { renderReportsList(); reportsModal.classList.add('show'); };
+document.getElementById('closeReports').onclick = () => reportsModal.classList.remove('show');
+document.getElementById('clearAll').onclick = () => {
+  if (getReports().length === 0) { toast('Список пуст'); return; }
+  if (!confirm('Удалить ВСЕ отметки?')) return;
+  setReports([]); renderAllReports(); renderReportsList();
+  toast('Отметки удалены');
+};
+function renderReportsList() {
+  const reports = getReports();
+  const list = document.getElementById('reportList');
+  if (!reports.length) {
+    list.innerHTML = '<div class="empty">Пока нет отметок.<br>Нажми 📍 и тапни по карте,<br>чтобы добавить первую.</div>';
+    return;
+  }
+  list.innerHTML = '';
+  reports.forEach(r => {
+    const el = document.createElement('div');
+    el.className = 'report';
+    const emoji = { green:'✅', yellow:'👍', orange:'⚠️', red:'⛔', unknown:'❔' }[r.q] || '❔';
+    const d = new Date(r.date);
+    el.innerHTML = '<div class="q" style="background:' + COLORS[r.q] + '">' + emoji + '</div>' +
+      '<div class="info"><div class="date">' + d.toLocaleString('ru-RU') + '</div>' +
+      '<div class="name">' + LABELS[r.q] + '</div>' +
+      '<div class="note">' + (r.note || 'Без заметки') + '</div></div>' +
+      '<button class="del">🗑</button>';
+    el.querySelector('.info').onclick = () => {
+      reportsModal.classList.remove('show');
+      map.setView([r.lat, r.lng], 17);
+      setTimeout(() => { map.eachLayer(l => { if (l.getLatLng && l.getLatLng().lat === r.lat) l.openPopup && l.openPopup(); }); }, 200);
+    };
+    el.querySelector('.del').onclick = (e) => {
+      e.stopPropagation();
+      if (!confirm('Удалить эту отметку?')) return;
+      setReports(getReports().filter(x => x.id !== r.id));
+      renderAllReports(); renderReportsList();
+    };
+    list.appendChild(el);
+  });
+}
+
+/* ============ GPS ============ */
+function onPosition(pos) {
+  const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+  if (!userMarker) {
+    userMarker = L.circleMarker([lat, lng], {
+      radius: 8, color: '#fff', weight: 3, fillColor: '#3b82f6', fillOpacity: 1
+    }).addTo(map);
+  } else {
+    userMarker.setLatLng([lat, lng]);
+  }
+  if (followUser) map.setView([lat, lng], Math.max(map.getZoom(), 16));
+  setStatus('ok', 'GPS ±' + Math.round(accuracy) + ' м');
+}
+function onErr(e) { setStatus('err', '⚠️ ' + (e.message || 'Ошибка GPS')); }
+function startWatch() {
+  if (watchId !== null) return;
+  if (!navigator.geolocation) return;
+  watchId = navigator.geolocation.watchPosition(onPosition, onErr, { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 });
+}
+document.getElementById('locBtn').onclick = () => {
+  followUser = !followUser;
+  document.getElementById('locBtn').classList.toggle('active', followUser);
+  if (followUser) {
+    startWatch();
+    setStatus('', '🎯 Ищу GPS…');
+    toast('Слежу за тобой. Тапни 🎯 снова, чтобы отменить');
+  } else {
+    setStatus('ok', 'Слежение выключено');
+  }
+};
+map.on('dragstart', () => {
+  if (followUser) {
+    followUser = false;
+    document.getElementById('locBtn').classList.remove('active');
+  }
+});
+
+/* ============ Легенда ============ */
+let legendOpen = true;
+document.getElementById('legendToggle').onclick = () => {
+  legendOpen = !legendOpen;
+  document.getElementById('legendBody').style.display = legendOpen ? '' : 'none';
+  document.getElementById('legendToggle').textContent = legendOpen ? '▼' : '▲';
+};
+
+/* ============ Старт ============ */
+renderAllReports();
+setStatus('', 'Готов. Нажми «Показать качество»');
+</script>
+</body>
+</html>
